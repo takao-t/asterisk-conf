@@ -13,24 +13,27 @@
 #define PIPEF  "/tmp/RTSCTL"
 
 int sfd;
+
 //Control RTS PIN
-int RTS_VAL = TIOCM_RTS;
-//
+int CTRL_VAL = TIOCM_RTS;
+//If you want to use DTR,use following.
+//int CTRL_VAL = TIOCM_DTR;
+
 FILE *fp;
 
-void set_rts_on();
-void set_rts_off();
+void set_pin_on();
+void set_pin_off();
 
 //Set RTS Pin
-void set_rts_on(){
+void set_pin_on(){
     printf("Set to on\n");
-    ioctl(sfd, TIOCMBIS, &RTS_VAL);
+    ioctl(sfd, TIOCMBIS, &CTRL_VAL);
 }
 
 //Reset RTS Pin
-void set_rts_off(){
+void set_pin_off(){
     printf("Set to off\n");
-    ioctl(sfd, TIOCMBIC, &RTS_VAL);
+    ioctl(sfd, TIOCMBIC, &CTRL_VAL);
 }
 
 //Main
@@ -63,8 +66,8 @@ void main()
 
         //Wait for new line
         while(fgets(buf,32,fp) != NULL){
-            if(strcmp(buf,"ON\n") == 0) set_rts_on();
-            else if(strcmp(buf,"OFF\n") == 0) set_rts_off();
+            if(strcmp(buf,"ON\n") == 0) set_pin_on();
+            else if(strcmp(buf,"OFF\n") == 0) set_pin_off();
             else if(strcmp(buf,"EXIT\n") == 0){
                 close(sfd);
                 fclose(fp);
