@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <termios.h>
+#include <time.h>
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -11,6 +12,9 @@
 
 #define TTYDEV "/dev/ttyUSB0"
 #define PIPEF  "/tmp/RTSCTL"
+
+//Maximum holding(on) time of PTT(secs.)
+#define PTT_MAX_HOLD 10
 
 int sfd;
 
@@ -22,19 +26,43 @@ int mbits;
 
 FILE *fp;
 
+timer_t timerid;
+struct itimerspec its;
+
 void set_pin_on();
 void set_pin_off();
 
 //Set RTS Pin
 void set_pin_on(){
+    //Remove previouse timer
+    if(timerid != NULL) timer_delete(timerid);
+    //Create timer
+    its.it_value.tv_sec = PTT_MAX_HOLD;
+    its.it_value.tv_nsec = 0;
+    timer_create(CLOCK_REALTIME, NULL, &timerid);
+
     printf("Set to on\n",mbits);
     ioctl(sfd, TIOCMBIS, &CTRL_VAL);
+
+    //Arm the timer
+    timer_settime(timerid, 0, &its, NULL);
 }
 
 //Reset RTS Pin
 void set_pin_off(){
     printf("Set to off\n",mbits);
     ioctl(sfd, TIOCMBIC, &CTRL_VAL);
+    //Disarm the timer
+    if(timerid != NULL) timer_delete(timerid);
+}
+
+//Froce off Handler
+void force_off_handler(int signum){
+    printf("TIMER - ");
+    printf("Set to off\n",mbits);
+    ioctl(sfd, TIOCMBIC, &CTRL_VAL);
+    //Disarm the timer
+    if(timerid != NULL) timer_delete(timerid);
 }
 
 //Main
@@ -42,6 +70,14 @@ void main()
 {
     char *ret;
     char buf[32];
+
+    struct sigaction act, oldact;
+
+    //Initialize some timer values
+    memset(&act, 0, sizeof(act));
+    memset(&oldact, 0, sizeof(oldact));
+    its.it_interval.tv_sec = 0;
+    its.it_interval.tv_nsec = 0;
 
     //Open TTY Device to IOCTL
     sfd = open(TTYDEV,O_RDWR | O_NOCTTY);
@@ -63,6 +99,11 @@ void main()
     //Prevent on when start this program
     set_pin_off();
 
+    act.sa_handler = force_off_handler;
+    act.sa_flags = SA_RESTART;
+    sigaction(SIGALRM, &act, &oldact);
+
+
     //Main Loop
     while(1){
         //Open PIPE(FIFO)
@@ -78,6 +119,7 @@ void main()
                 else set_pin_on();
             }
             else if(strcmp(buf,"EXIT\n") == 0){
+                sigaction(SIGALRM, &oldact, NULL);
                 close(sfd);
                 fclose(fp);
                 exit(0);
@@ -86,6 +128,7 @@ void main()
         //After EOF,reopen and continue
     }
 
+    sigaction(SIGALRM, &oldact, NULL);
     close(sfd);
     fclose(fp);
     exit(0);
