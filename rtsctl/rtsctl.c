@@ -18,6 +18,7 @@ int sfd;
 int CTRL_VAL = TIOCM_RTS;
 //If you want to use DTR,use following.
 //int CTRL_VAL = TIOCM_DTR;
+int mbits;
 
 FILE *fp;
 
@@ -26,13 +27,13 @@ void set_pin_off();
 
 //Set RTS Pin
 void set_pin_on(){
-    printf("Set to on\n");
+    printf("Set to on\n",mbits);
     ioctl(sfd, TIOCMBIS, &CTRL_VAL);
 }
 
 //Reset RTS Pin
 void set_pin_off(){
-    printf("Set to off\n");
+    printf("Set to off\n",mbits);
     ioctl(sfd, TIOCMBIC, &CTRL_VAL);
 }
 
@@ -59,6 +60,9 @@ void main()
     }
     chmod(PIPEF, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
 
+    //Prevent on when start this program
+    set_pin_off();
+
     //Main Loop
     while(1){
         //Open PIPE(FIFO)
@@ -68,6 +72,11 @@ void main()
         while(fgets(buf,32,fp) != NULL){
             if(strcmp(buf,"ON\n") == 0) set_pin_on();
             else if(strcmp(buf,"OFF\n") == 0) set_pin_off();
+            else if(strcmp(buf,"ALT\n") == 0){
+                ioctl(sfd, TIOCMGET, &mbits);
+                if(mbits & CTRL_VAL) set_pin_off();
+                else set_pin_on();
+            }
             else if(strcmp(buf,"EXIT\n") == 0){
                 close(sfd);
                 fclose(fp);
