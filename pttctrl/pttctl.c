@@ -17,7 +17,7 @@
 
 //PTTをホールドする最長時間
 //特小機の場合は最長180秒で無線機側が解除
-#define PTT_MAX_HOLD 10
+#define PTT_MAX_HOLD 170
 
 //TTYデバイス用ディスクリプタ
 int sfd;
