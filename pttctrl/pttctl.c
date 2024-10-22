@@ -9,11 +9,8 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-
-//使用するTTYデバイス名
-#define TTYDEV "/dev/ttyUSB0"
-//インタフェース用パイプ(FIFO)
-#define PIPEF  "/tmp/PTTCTL"
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 //PTTをホールドする最長時間
 //特小機の場合は最長180秒で無線機側が解除
@@ -21,9 +18,6 @@
 
 //TTYデバイス用ディスクリプタ
 int sfd;
-
-//パイプ用ファイルポインタ
-FILE *fp;
 
 //RTSでPTT制御する場合
 int CTRL_VAL = TIOCM_RTS;
@@ -77,13 +71,51 @@ void force_off_handler(int signum){
 
 
 //メイン
-void main()
+void main(int argc, char *argv[])
 {
     char *ret;
-    char buf[32];
+    char ttydev[128];
     char strbuf[128];
 
+    int sockfd, nsockfd;
+    socklen_t c_len;
+    struct sockaddr_in my_addr,c_addr; 
+    char rec_buf[256];
+
+    int myport;
+    int sret;
+
     struct sigaction act, oldact;
+
+    memset((char *)&my_addr, 0, sizeof(my_addr));
+
+    if(argc != 3){
+        printf("Usage: pttctl DEV PORT\n");
+        exit(1);
+    }
+
+    //デバイス名
+    strcpy(ttydev,argv[1]);
+    //ポート番号
+    myport = atoi(argv[2]);
+
+    if(myport <= 0){
+        printf("Usage: pttctl DEV PORT\n");
+        exit(1);
+    }
+
+    //ソケット生成
+    sockfd= socket(AF_INET, SOCK_STREAM, 0);
+
+    my_addr.sin_family = AF_INET;
+    my_addr.sin_addr.s_addr = INADDR_ANY;
+    my_addr.sin_port = htons(myport);
+    
+    sret = bind(sockfd, (struct sockaddr *)&my_addr, sizeof(my_addr));
+    if(sret < 0){
+        perror("bind error\n");
+        exit(1);
+    }
 
     //タイマの初期値設定
     memset(&act, 0, sizeof(act));
@@ -92,24 +124,14 @@ void main()
     its.it_interval.tv_nsec = 0;
 
     //IOCTL対象のTTYデバイスオープン
-    sfd = open(TTYDEV,O_RDWR | O_NOCTTY);
+    sfd = open(ttydev,O_RDWR | O_NOCTTY);
 
     if(sfd == -1){
-        sprintf(strbuf, "%s", TTYDEV);
+        sprintf(strbuf, "%s", ttydev);
         perror(strbuf);
         exit(1);
     } 
 
-    //パイプを一旦unlinkしてから作成
-    unlink(PIPEF);
-    if(mkfifo(PIPEF, S_IRUSR|S_IWUSR) != 0){
-        perror("PIPE");
-        close(sfd);
-        exit(1);
-    }
-    //パイプの権限を設定
-    //権限をグループ等に制限する場合はここを修正
-    chmod(PIPEF, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH);
 
     //開始時(TTYオープン)にオンになっているピンをオフする
     set_pin_off();
@@ -120,36 +142,43 @@ void main()
     sigaction(SIGALRM, &act, &oldact);
 
 
+    listen(sockfd,5);
+
     //メインループ
     while(1){
-        //パイプをオープン(RO)
-        fp = fopen(PIPEF, "r");
+        //accept
+        c_len = sizeof(c_addr);
+        nsockfd = accept(sockfd, (struct sockaddr*)&c_addr, &c_len);
+        memset(rec_buf,0,sizeof(rec_buf));
+        //socketから受信
+        sret = recv(nsockfd, rec_buf, sizeof(rec_buf)-2, 0);
+        //printf("%d\n", sret);
+        //printf("%s\n", rec_buf);
+        close(nsockfd);
 
-        //パイプからの1行待ち
-        while(fgets(buf,32,fp) != NULL){
-            //ONならピンをオンに
-            if(strcmp(buf,"ON\n") == 0) set_pin_on();
-            //OFFならピンをオフに
-            else if(strcmp(buf,"OFF\n") == 0) set_pin_off();
-            //ALTなら現在の状態を反転
-            else if(strcmp(buf,"ALT\n") == 0){
-                ioctl(sfd, TIOCMGET, &mbits);
-                if(mbits & CTRL_VAL) set_pin_off();
-                else set_pin_on();
-            }
-            //EXITならプログラム終了
-            else if(strcmp(buf,"EXIT\n") == 0){
-                sigaction(SIGALRM, &oldact, NULL);
-                close(sfd);
-                fclose(fp);
-                exit(0);
-            }
+        //受信した文字列によって処理
+        //ONならピンをオンに
+        if(strcmp(rec_buf,"NETPTT:ON\n") == 0) set_pin_on();
+        //OFFならピンをオフに
+        else if(strcmp(rec_buf,"NETPTT:OFF\n") == 0) set_pin_off();
+        //ALTなら現在の状態を反転
+        else if(strcmp(rec_buf,"NETPTT:ALT\n") == 0){
+            ioctl(sfd, TIOCMGET, &mbits);
+            if(mbits & CTRL_VAL) set_pin_off();
+            else set_pin_on();
         }
-        //パイプからEOFが来たら再度待機へ
+        //EXITならプログラム終了
+        else if(strcmp(rec_buf,"EXIT\n") == 0){
+            sigaction(SIGALRM, &oldact, NULL);
+            close(sockfd);
+            close(sfd);
+            exit(0);
+        }
+        //再度受信待ちへ
     }
 
     sigaction(SIGALRM, &oldact, NULL);
+    close(sockfd);
     close(sfd);
-    fclose(fp);
     exit(0);
 }
