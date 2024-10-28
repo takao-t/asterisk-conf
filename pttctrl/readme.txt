@@ -1,1 +1,1 @@
-gcc -o pttctrl pttctrl -lrt
+gcc -o pttctrl pttctrl.c -lrt
