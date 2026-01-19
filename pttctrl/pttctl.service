@@ -1,0 +1,16 @@
+[Unit]
+Description=PTT Control Service
+# ネットワークと、USBデバイスが認識された後に起動する設定
+After=network.target dev-ttyUSB0.device
+# デバイスへの強い依存（デバイスが抜かれたら停止する）
+BindsTo=dev-ttyUSB0.device
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pttctl /dev/ttyUSB0 5091
+# プロセスが落ちた場合に自動再起動する設定
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

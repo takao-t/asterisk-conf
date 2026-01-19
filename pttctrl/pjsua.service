@@ -1,0 +1,23 @@
+[Unit]
+Description=PJSUA SIP Client inside Screen
+After=network.target sound.target
+
+[Service]
+# screen -dm はバックグラウンドにフォークして親プロセスが終了するため、forkingを指定します
+Type=forking
+
+# 実行ユーザー
+# User=root
+
+# screenコマンド
+# -dmS: デタッチモードでセッション名pjsuaを作成
+# サービス停止時に確実にkillされるよう、ExecStopも設定
+ExecStart=/usr/bin/screen -dmS pjsua /usr/local/bin/pjsua --config-file /usr/local/etc/pjsua.conf
+ExecStop=/usr/bin/screen -S pjsua -X quit
+
+# 再起動設定
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
